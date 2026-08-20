@@ -1,0 +1,157 @@
+name: Better Email Design System
+description: Validate a Better Email Design System and post its diff on pull requests
+
+inputs:
+  api-key:
+    description: Better Email organization API key
+    required: true
+  base-url:
+    description: Better Email application URL
+    required: false
+    default: https://app.better.email
+  working-directory:
+    description: Design System checkout containing .better/config.json
+    required: false
+    default: .
+  channel:
+    description: Design System channel to compare against
+    required: false
+    default: live
+  check:
+    description: Run better check before generating the diff
+    required: false
+    default: "true"
+  comment:
+    description: Upsert a sticky pull request comment with the diff
+    required: false
+    default: "true"
+  cli-version:
+    description: Version of @better-email/cli to install
+    required: false
+    default: "^0.5.0"
+
+outputs:
+  has-changes:
+    description: Whether the local Design System differs from the target channel
+    value: ${{ steps.diff.outputs.has-changes }}
+  check-passed:
+    description: Whether better check passed, or true when the check was disabled
+    value: ${{ steps.check.outputs.passed }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install Better Email CLI
+      shell: bash
+      env:
+        CLI_VERSION: ${{ inputs.cli-version }}
+      run: |
+        set -euo pipefail
+        npm install -g "@better-email/cli@${CLI_VERSION}"
+
+    - name: Check Design System
+      id: check
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        BETTER_API_KEY: ${{ inputs.api-key }}
+        BETTER_BASE_URL: ${{ inputs.base-url }}
+        CHECK_ENABLED: ${{ inputs.check }}
+      run: |
+        set -euo pipefail
+
+        if [[ "${CHECK_ENABLED}" != "true" ]]; then
+          echo "passed=true" >> "${GITHUB_OUTPUT}"
+          exit 0
+        fi
+
+        set +e
+        better check
+        check_status=$?
+        set -e
+
+        if [[ ${check_status} -eq 0 ]]; then
+          echo "passed=true" >> "${GITHUB_OUTPUT}"
+        else
+          echo "passed=false" >> "${GITHUB_OUTPUT}"
+          echo "::error::better check failed with exit code ${check_status}. The diff will still be generated before the action fails."
+        fi
+
+    - name: Generate Design System diff
+      id: diff
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        BETTER_API_KEY: ${{ inputs.api-key }}
+        BETTER_BASE_URL: ${{ inputs.base-url }}
+        CHANNEL: ${{ inputs.channel }}
+        DIFF_FILE: ${{ runner.temp }}/better-email-design-system-diff.md
+      run: |
+        set -euo pipefail
+
+        fail_diff() {
+          local status="$1"
+          local message="$2"
+          if [[ -s "${DIFF_FILE}" ]]; then
+            cat "${DIFF_FILE}" >&2
+          fi
+          echo "::error::${message}"
+          exit "${status}"
+        }
+
+        set +e
+        better ds diff --against "${CHANNEL}" --format markdown > "${DIFF_FILE}"
+        diff_status=$?
+        set -e
+
+        case "${diff_status}" in
+          0)
+            if ! grep -Fxq "No changes against ${CHANNEL}." "${DIFF_FILE}"; then
+              fail_diff 2 "better ds diff did not produce a valid clean Markdown report."
+            fi
+            echo "has-changes=false" >> "${GITHUB_OUTPUT}"
+            ;;
+          1)
+            # The CLI also uses exit 1 for operational errors. A successful
+            # changed diff always starts with this Markdown heading.
+            if ! grep -q '^### Design System diff — ' "${DIFF_FILE}"; then
+              fail_diff 1 "better ds diff failed with exit code 1."
+            fi
+            echo "has-changes=true" >> "${GITHUB_OUTPUT}"
+            ;;
+          *)
+            fail_diff "${diff_status}" "better ds diff failed with exit code ${diff_status}."
+            ;;
+        esac
+
+    - name: Update pull request comment
+      if: ${{ always() && inputs.comment == 'true' && github.event_name == 'pull_request' && steps.diff.outcome == 'success' }}
+      uses: actions/github-script@v7
+      env:
+        COMMENT_SCRIPT: ${{ github.action_path }}/scripts/comment.js
+        DIFF_FILE: ${{ runner.temp }}/better-email-design-system-diff.md
+        GITHUB_TOKEN: ${{ github.token }}
+        WORKING_DIRECTORY: ${{ inputs.working-directory }}
+        CHANNEL: ${{ inputs.channel }}
+      with:
+        github-token: ${{ github.token }}
+        script: |
+          const { pathToFileURL } = require('node:url')
+          const { default: upsertComment } = await import(
+            pathToFileURL(process.env.COMMENT_SCRIPT).href
+          )
+          await upsertComment({
+            github,
+            context,
+            core,
+            diffPath: process.env.DIFF_FILE,
+            workingDirectory: process.env.WORKING_DIRECTORY,
+            channel: process.env.CHANNEL,
+          })
+
+    - name: Fail when validation failed
+      if: ${{ always() && steps.check.outputs.passed == 'false' }}
+      shell: bash
+      run: |
+        echo "::error::better check failed."
+        exit 1
