@@ -1,14 +1,16 @@
 # Better Email Design System Action
 
-Validate a [Better Email](https://better.email) Design System, compare it with a published channel, and keep the result in one sticky pull request comment.
+Review a [Better Email](https://better.email) Design System on pull requests, then push a Version after changes merge.
 
 <!-- Screenshot placeholder: a pull request comment showing the Design System diff table. -->
 
-The action runs `better check`, generates a Markdown diff against `live` (or another channel), and updates its previous comment instead of adding a new comment on every commit. Validation failures fail the job after the action has attempted to publish the diff.
+Node.js 20 or 22 is required. Add `BETTER_API_KEY` as a repository secret before using either workflow.
 
-## Quickstart
+## On pull requests
 
-Node.js 20 or 22 is required. Add `BETTER_API_KEY` as a repository secret, then create a workflow such as `.github/workflows/design-system.yml`:
+The default `review` mode runs `better check`, generates a Markdown diff against `live` (or another channel), and updates its previous comment instead of adding a new comment on every commit. Validation failures fail the job after the action has attempted to post the diff.
+
+Create a workflow such as `.github/workflows/design-system-review.yml`:
 
 ```yaml
 name: Design System
@@ -41,26 +43,70 @@ The concurrency group cancels overlapping runs for the same pull request so they
 
 The checkout at `working-directory` must contain `.better/config.json`. The API key must belong to the Better Email organization that owns the Design System.
 
+## On merge to main
+
+Use `push` mode in a separate merge-to-main workflow. It runs `better check` first and only runs `better ds push --yes` when validation passes.
+
+```yaml
+name: Push Design System
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  design-system:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: betteremail/design-system-action@v1
+        id: design-system
+        with:
+          mode: push
+          api-key: ${{ secrets.BETTER_API_KEY }}
+      - name: Report a Version awaiting publish
+        if: ${{ steps.design-system.outputs.version != '' && steps.design-system.outputs.staged == 'false' }}
+        run: echo "Version ${{ steps.design-system.outputs.version }} awaiting publish"
+```
+
+A push creates a Version and, when Candidate testing is available, stages it as Candidate by default. Pushing **never** publishes Live; promotion stays in the app. When the Organization does not use Candidate testing, the push creates a Version that is not published; someone publishes that Version from the app, and `staged` is `false` so a workflow can notify that `Version N` is awaiting publish. Setting `stage: false` also creates the Version without staging it as Candidate.
+
+`push-name` names the Version. It defaults to `CI push {sha}` and replaces `{sha}` with the short commit SHA and `{ref}` with the Git ref.
+
+Without `force`, the push fails if the remote Design System moved since the checkout's last pull binding. This is the safe default: let the workflow fail and have someone pull the latest Version before retrying. With `force: true`, CI always wins by passing `--force`. The action never silently retries with force.
+
 ## Inputs
 
-| Input               | Required | Default                    | Description                                                                  |
-| ------------------- | -------- | -------------------------- | ---------------------------------------------------------------------------- |
-| `api-key`           | Yes      | —                          | Better Email organization API key. Pass `${{ secrets.BETTER_API_KEY }}`.     |
-| `base-url`          | No       | `https://app.better.email` | Better Email application URL.                                                |
-| `working-directory` | No       | `.`                        | Design System checkout containing `.better/config.json`.                     |
-| `channel`           | No       | `live`                     | Published channel to compare against.                                        |
-| `check`             | No       | `true`                     | Run `better check`. Check failures fail the job after the diff is attempted. |
-| `comment`           | No       | `true`                     | Upsert the sticky pull request comment.                                      |
-| `cli-version`       | No       | `^0.5.0`                   | Version of `@better-email/cli` to install.                                   |
+| Input               | Required | Default                    | Description                                                                                                             |
+| ------------------- | -------- | -------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `api-key`           | Yes      | —                          | Better Email organization API key. Pass `${{ secrets.BETTER_API_KEY }}`.                                                |
+| `base-url`          | No       | `https://app.better.email` | Better Email application URL.                                                                                           |
+| `working-directory` | No       | `.`                        | Design System checkout containing `.better/config.json`.                                                                |
+| `mode`              | No       | `review`                   | `review` checks and comments on a pull request; `push` creates a Version.                                               |
+| `channel`           | No       | `live`                     | Published channel to compare against in `review` mode. Ignored in `push` mode.                                          |
+| `check`             | No       | `true`                     | Run `better check`. A failure stops `push` before creating a Version; `review` still generates its diff before failing. |
+| `comment`           | No       | `true`                     | Upsert the sticky pull request comment in `review` mode. Ignored in `push` mode.                                        |
+| `push-name`         | No       | `CI push {sha}`            | Name for the Version in `push` mode, with `{sha}` and `{ref}` placeholders. Ignored in `review` mode.                   |
+| `stage`             | No       | `true`                     | Stage the Version as Candidate when possible in `push` mode; `false` passes `--no-stage`. Ignored in `review` mode.     |
+| `force`             | No       | `false`                    | Let CI push over a remote change by passing `--force` in `push` mode. Ignored in `review` mode.                         |
+| `cli-version`       | No       | `^0.5.0`                   | Version of `@better-email/cli` to install.                                                                              |
 
 `cli-version` defaults to the compatible `>=0.5.0 <0.6.0` range. Override it when you need to use another CLI version.
 
 ## Outputs
 
-| Output         | Description                                                          |
-| -------------- | -------------------------------------------------------------------- |
-| `has-changes`  | `true` when the local Design System differs from the target channel. |
-| `check-passed` | `true` when `better check` passes, or when `check` is disabled.      |
+| Output         | Description                                                                             |
+| -------------- | --------------------------------------------------------------------------------------- |
+| `has-changes`  | In `review` mode, `true` when the local Design System differs from the target channel.  |
+| `check-passed` | `true` when `better check` passes, or when `check` is disabled.                         |
+| `version`      | In `push` mode, the created Version number. Empty when no Version number can be parsed. |
+| `staged`       | In `push` mode, `true` when the Version was staged as Candidate; otherwise `false`.     |
 
 ## Fork pull requests
 
