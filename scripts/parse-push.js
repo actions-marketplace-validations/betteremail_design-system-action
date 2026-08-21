@@ -3,12 +3,14 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export function parsePushOutput(output) {
-  const version = output.match(/^Created Version ([0-9]+):/m)?.[1] ?? "";
-  const staged = /^Staged as Candidate\.$/m.test(output);
+  const version = output.match(/^Created version ([0-9]+):/im)?.[1] ?? "";
+  const staged = /^Staged as Candidate\.$/im.test(output);
   const stagingParsed =
     staged ||
-    /^Not staged as Candidate:/m.test(output) ||
-    /^Version created, but staging as Candidate failed:/m.test(output);
+    /^Not staged as Candidate:/im.test(output) ||
+    /^(?:The version was|version) created, but staging as Candidate failed:/im.test(
+      output,
+    );
 
   return { version, staged, stagingParsed };
 }
@@ -18,7 +20,7 @@ function emitOutputs(output) {
 
   if (parsed.version === "") {
     console.error(
-      "::warning::Could not parse the created Version number from better ds push output.",
+      "::warning::Could not parse the created version number from better ds push output.",
     );
   }
   if (!parsed.stagingParsed) {

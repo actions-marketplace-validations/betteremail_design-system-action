@@ -14,7 +14,7 @@ inputs:
     required: false
     default: .
   mode:
-    description: Workflow mode; review checks a pull request and push creates a Version
+    description: Workflow mode; review checks a pull request and push creates a version
     required: false
     default: review
   channel:
@@ -30,11 +30,11 @@ inputs:
     required: false
     default: "true"
   push-name:
-    description: Version name in push mode; supports {sha} and {ref}; ignored in review mode
+    description: Name of the version in push mode; supports {sha} and {ref}; ignored in review mode
     required: false
     default: CI push {sha}
   stage:
-    description: Stage the Version as Candidate when possible in push mode; ignored in review mode
+    description: Stage the version as Candidate when possible in push mode; ignored in review mode
     required: false
     default: "true"
   force:
@@ -54,10 +54,10 @@ outputs:
     description: Whether better check passed, or true when the check was disabled
     value: ${{ steps.check.outputs.passed }}
   version:
-    description: Version number created in push mode
+    description: Number of the version created in push mode
     value: ${{ steps.push.outputs.version }}
   staged:
-    description: Whether the Version created in push mode was staged as Candidate
+    description: Whether the version created in push mode was staged as Candidate
     value: ${{ steps.push.outputs.staged }}
 
 runs:
