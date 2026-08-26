@@ -1,5 +1,8 @@
 name: Better Email Design System
 description: Review or push a Better Email Design System from GitHub Actions
+branding:
+  icon: mail
+  color: orange
 
 inputs:
   api-key:
