@@ -95,9 +95,9 @@ Without `force`, the push fails if the remote Design System moved since the chec
 | `push-name`         | No       | `CI push {sha}`            | Name for the version in `push` mode, with `{sha}` and `{ref}` placeholders. Ignored in `review` mode.                   |
 | `stage`             | No       | `true`                     | Stage the version as Candidate when possible in `push` mode; `false` passes `--no-stage`. Ignored in `review` mode.     |
 | `force`             | No       | `false`                    | Let CI push over a remote change by passing `--force` in `push` mode. Ignored in `review` mode.                         |
-| `cli-version`       | No       | `^0.6.0`                   | Version of `@better-email/cli` to install.                                                                              |
+| `cli-version`       | No       | `^0.7.0`                   | Version of `@better-email/cli` to install.                                                                              |
 
-`cli-version` defaults to the compatible `>=0.6.0 <0.7.0` range. Override it when you need to use another CLI version.
+`cli-version` defaults to the compatible `>=0.7.0 <0.8.0` range. Override it when you need to use another CLI version.
 
 ## Outputs
 
